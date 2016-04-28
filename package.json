@@ -1,5 +1,5 @@
 {
-  "name": "amqp-pubsub",
+  "name": "amqplib-pubsub",
   "version": "0.0.1",
   "description": "Simple ampqlib class container.",
   "main": "index.js",
