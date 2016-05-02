@@ -7,6 +7,8 @@ class PubSub {
   constructor() {
     this._rx = null
     this._tx = null
+    this._rxConnection = null
+    this._txConnection = null
   }
 
   /**
@@ -15,7 +17,7 @@ class PubSub {
    * @author Antonio Saad
    */
   connect(url) {
-    return this.connectForRx(url).connectForTx(this._rx)
+    return this.connectForRx(url).connectForTx(url)
   }
 
   /**
@@ -39,37 +41,73 @@ class PubSub {
   }
 
   /**
+   * @method close
+   * @description close all connections
+   * @author Carlos Marcano
+   */
+  close() {
+    if (this._txConnection !== null) {
+      this._txConnection.close()
+      this._txConnection = null
+    }
+    if (this._rxConnection !== null) {
+      this._rxConnection.close()
+      this._rxConnection = null
+    }
+  }
+
+  /**
    * @method publish
-   * @description Publish a message to a specific queue
+   * @description Publish a message to a specific exchange
    * @author Antonio Saad
    */
-  publish(queue, msg, opts) {
+  publish(exchange, message) {
     if (this._tx === null) throw new Error('No connection available for publishing')
-    return this._tx.then(conn => conn.createChannel())
-      .then(channel => [channel, channel.assertQueue(queue)])
-      .then(results => results[0].sendToQueue(queue, new Buffer(JSON.stringify({ data: msg })), opts)) // results[0] is the channel
+    return this._tx.then(connection => {
+      this._txConnection = connection
+      return this._txConnection.createChannel()
+    })
+      .then(channel => {
+        const content = this._buildContent(message)
+        channel.assertExchange(exchange, 'fanout', {durable: false})
+        return channel.publish(exchange, '', content)
+      })
   }
 
   /**
    * @method subscribe
-   * @description Subscribe to a specific queue and attends the incoming messages in the Promise returned
+   * @description Subscribe to a specific exchange and attends the incoming messages in the Promise returned
    * @author Antonio Saad
    */
-  subscribe(queue, opts, noAck) {
+  subscribe(exchange, cb) {
     if (this._rx === null) throw new Error('No connection available for consuming')
-    return this._rx.then(conn => conn.createChannel())
-      .then(channel => [channel, channel.assertQueue(queue)])
+    return this._rx.then(connection => {
+      this._rxConnection = connection
+      return this._rxConnection.createChannel()
+    })
+      .then(channel => {
+        channel.assertExchange(exchange, 'fanout', {durable: false})
+        return [channel, channel.assertQueue('', {exclusive: true})]
+      })
       .then(results => {
         const channel = results[0]
-        return new Promise((resolve, reject) => {
-          channel.consume(queue, msg => {
-            if (!msg) return reject(new Error('Message is null'))
-            if (!noAck) channel.ack(msg)
-            msg.content = JSON.parse(msg.content.toString()).data
-            return resolve(msg)
-          }, opts)
-        })
+        const queue = results[1]
+        channel.bindQueue(queue.queue, exchange, '')
+        return channel.consume(queue.queue, cb)
       })
+  }
+
+
+  /**
+   * @method _buildContent
+   * @description build a content to send
+   * @author Carlos Marcano
+   */
+  _buildContent(message) {
+    const type = typeof message
+    if (type === 'string' || type === 'array') return new Buffer(message)
+    if (type === 'object') return new Buffer(JSON.stringify(message))
+    return undefined
   }
 
 }
