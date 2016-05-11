@@ -93,7 +93,7 @@ class PubSub {
         const channel = results[0]
         const queue = results[1]
         channel.bindQueue(queue.queue, exchange, '')
-        return channel.consume(queue.queue, cb)
+        return channel.consume(queue.queue, message => cb(this._getContent(message)))
       })
   }
 
@@ -108,6 +108,20 @@ class PubSub {
     if (type === 'string' || type === 'array') return new Buffer(message)
     if (type === 'object') return new Buffer(JSON.stringify(message))
     return undefined
+  }
+
+  /**
+   * @method _getContent
+   * @description
+   * @author Carlos Marcano
+   */
+  _getContent(message) {
+    const str = message.content.toString()
+    try {
+      return JSON.parse(str)
+    } catch (e) {
+      return str
+    }
   }
 
 }
